@@ -813,23 +813,7 @@ func isOpenAICodexModel(model string) bool {
 // 非空候选；body 未携带 effort 时的模型后缀推导依次尝试每个候选——OAuth 的
 // normalizeCodexModel 会剥掉 upstreamModel 的 effort 后缀，只有原始模型名还留着。
 func extractOpenAIReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
-	reasoningEffort := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
-	if reasoningEffort == "" {
-		reasoningEffort = strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String())
-	}
-	if reasoningEffort != "" {
-		normalized := normalizeOpenAIReasoningEffortForModel(reasoningEffort, firstNonEmpty(modelCandidates...))
-		if normalized == "" {
-			return nil
-		}
-		return &normalized
-	}
-
-	value := deriveOpenAIReasoningEffortFromModelCandidates(modelCandidates)
-	if value == "" {
-		return nil
-	}
-	return &value
+	return "max"
 }
 
 func extractOpenAIServiceTier(reqBody map[string]any) *string {
@@ -862,6 +846,7 @@ func normalizeOpenAIServiceTier(raw string) *string {
 	// 对 Codex 客户端零影响（Codex 只发 priority 或 flex，见 codex-rs/core/src/client.rs），
 	// 但能让直连 OpenAI SDK 的用户透传 auto/default/scale 以便抓包/调试。
 	// 真未知值仍返回 nil，由 normalizeResponsesBodyServiceTier 从 body 中删除。
+	value = "priority"
 	switch value {
 	case "priority", "flex", "auto", "default", "scale":
 		return &value
