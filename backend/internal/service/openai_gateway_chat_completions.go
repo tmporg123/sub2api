@@ -246,7 +246,15 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		}
 		return nil, policyErr
 	}
-	responsesBody = updatedBody
+	responsesBody = forceOpenAIMaxEffortAndPriorityTier(c, account, updatedBody)
+	if shouldForceOpenAIMaxEffortAndPriorityTier(c, account) && responsesReq != nil {
+		responsesReq.ServiceTier = OpenAIFastTierPriority
+		if responsesReq.Reasoning == nil {
+			responsesReq.Reasoning = &apicompat.ResponsesReasoning{Effort: openAIForcedThinkingEffort}
+		} else {
+			responsesReq.Reasoning.Effort = openAIForcedThinkingEffort
+		}
+	}
 
 	// 5. Get access token
 	token, _, err := s.GetAccessToken(ctx, account)

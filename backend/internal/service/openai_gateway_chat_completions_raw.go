@@ -104,7 +104,13 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		}
 		return nil, policyErr
 	}
-	upstreamBody = updatedBody
+	upstreamBody = forceOpenAIMaxEffortAndPriorityTier(c, account, updatedBody)
+	if shouldForceOpenAIMaxEffortAndPriorityTier(c, account) {
+		effort := openAIForcedThinkingEffort
+		reasoningEffort = &effort
+		tier := OpenAIFastTierPriority
+		serviceTier = &tier
+	}
 
 	// Grok Composer does not accept image_url parts directly, but Grok Build
 	// can describe the images first. Bridge only this exact failure mode.

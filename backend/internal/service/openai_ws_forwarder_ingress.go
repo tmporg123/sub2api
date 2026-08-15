@@ -394,7 +394,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				blocked,
 			)
 		}
-		normalized = policyApplied
+		normalized = forceOpenAIMaxEffortAndPriorityTier(c, account, policyApplied)
 		ingressSessionOriginalModel = originalModel
 
 		return openAIWSClientPayload{

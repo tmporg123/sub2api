@@ -295,6 +295,115 @@ func isOpenAIResponsesCompactPath(c *gin.Context) bool {
 	return suffix == "/compact" || strings.HasPrefix(suffix, "/compact/")
 }
 
+const openAIForcedThinkingEffort = "max"
+
+func openAIRequestPathContainsCompact(c *gin.Context) bool {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(c.Request.URL.Path), "compact")
+}
+
+func shouldForceOpenAIMaxEffortAndPriorityTier(c *gin.Context, account *Account) bool {
+	if account != nil && account.Platform == PlatformGrok {
+		return false
+	}
+	return !openAIRequestPathContainsCompact(c)
+}
+
+// forceOpenAIMaxEffortAndPriorityTier rewrites the upstream OpenAI body so
+// non-compact requests always send reasoning effort=max and service_tier=priority.
+func forceOpenAIMaxEffortAndPriorityTier(c *gin.Context, account *Account, body []byte) []byte {
+	if !shouldForceOpenAIMaxEffortAndPriorityTier(c, account) || len(body) == 0 {
+		return body
+	}
+	parsed := gjson.ParseBytes(body)
+	if !parsed.Exists() || !parsed.IsObject() {
+		return body
+	}
+	frameType := strings.TrimSpace(parsed.Get("type").String())
+	if frameType != "" && frameType != "response.create" {
+		return body
+	}
+	updated, err := applyOpenAIForcedMaxEffortAndPriorityTier(body)
+	if err != nil || len(updated) == 0 {
+		return body
+	}
+	return updated
+}
+
+func forceOpenAIMaxEffortAndPriorityTierOnMap(c *gin.Context, account *Account, reqBody map[string]any) {
+	if reqBody == nil || !shouldForceOpenAIMaxEffortAndPriorityTier(c, account) {
+		return
+	}
+	if frameType, _ := reqBody["type"].(string); strings.TrimSpace(frameType) != "" && strings.TrimSpace(frameType) != "response.create" {
+		return
+	}
+	reqBody["service_tier"] = OpenAIFastTierPriority
+	_, hasMessages := reqBody["messages"]
+	_, hasInput := reqBody["input"]
+	if hasMessages && !hasInput {
+		reqBody["reasoning_effort"] = openAIForcedThinkingEffort
+		if reasoning, ok := reqBody["reasoning"].(map[string]any); ok && reasoning != nil {
+			reasoning["effort"] = openAIForcedThinkingEffort
+		}
+		return
+	}
+	reasoning, _ := reqBody["reasoning"].(map[string]any)
+	if reasoning == nil {
+		reasoning = map[string]any{}
+		reqBody["reasoning"] = reasoning
+	}
+	reasoning["effort"] = openAIForcedThinkingEffort
+	if _, ok := reqBody["reasoning_effort"]; ok {
+		reqBody["reasoning_effort"] = openAIForcedThinkingEffort
+	}
+}
+
+func applyOpenAIForcedMaxEffortAndPriorityTier(body []byte) ([]byte, error) {
+	out := body
+	var err error
+	if gjson.GetBytes(out, "service_tier").String() != OpenAIFastTierPriority {
+		out, err = sjson.SetBytes(out, "service_tier", OpenAIFastTierPriority)
+		if err != nil {
+			return body, err
+		}
+	}
+
+	chatCompletionsShape := gjson.GetBytes(out, "messages").Exists() && !gjson.GetBytes(out, "input").Exists()
+	if chatCompletionsShape {
+		if gjson.GetBytes(out, "reasoning_effort").String() != openAIForcedThinkingEffort {
+			out, err = sjson.SetBytes(out, "reasoning_effort", openAIForcedThinkingEffort)
+			if err != nil {
+				return body, err
+			}
+		}
+		if gjson.GetBytes(out, "reasoning.effort").Exists() &&
+			gjson.GetBytes(out, "reasoning.effort").String() != openAIForcedThinkingEffort {
+			out, err = sjson.SetBytes(out, "reasoning.effort", openAIForcedThinkingEffort)
+			if err != nil {
+				return body, err
+			}
+		}
+		return out, nil
+	}
+
+	if gjson.GetBytes(out, "reasoning.effort").String() != openAIForcedThinkingEffort {
+		out, err = sjson.SetBytes(out, "reasoning.effort", openAIForcedThinkingEffort)
+		if err != nil {
+			return body, err
+		}
+	}
+	if gjson.GetBytes(out, "reasoning_effort").Exists() &&
+		gjson.GetBytes(out, "reasoning_effort").String() != openAIForcedThinkingEffort {
+		out, err = sjson.SetBytes(out, "reasoning_effort", openAIForcedThinkingEffort)
+		if err != nil {
+			return body, err
+		}
+	}
+	return out, nil
+}
+
 func normalizeOpenAICompactRequestBody(body []byte) ([]byte, bool, error) {
 	if len(body) == 0 {
 		return body, false, nil
@@ -813,8 +922,23 @@ func isOpenAICodexModel(model string) bool {
 // 非空候选；body 未携带 effort 时的模型后缀推导依次尝试每个候选——OAuth 的
 // normalizeCodexModel 会剥掉 upstreamModel 的 effort 后缀，只有原始模型名还留着。
 func extractOpenAIReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
-	val := "max"
-	return &val
+	reasoningEffort := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
+	if reasoningEffort == "" {
+		reasoningEffort = strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String())
+	}
+	if reasoningEffort != "" {
+		normalized := normalizeOpenAIReasoningEffortForModel(reasoningEffort, firstNonEmpty(modelCandidates...))
+		if normalized == "" {
+			return nil
+		}
+		return &normalized
+	}
+
+	value := deriveOpenAIReasoningEffortFromModelCandidates(modelCandidates)
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func extractOpenAIServiceTier(reqBody map[string]any) *string {
@@ -847,7 +971,6 @@ func normalizeOpenAIServiceTier(raw string) *string {
 	// 对 Codex 客户端零影响（Codex 只发 priority 或 flex，见 codex-rs/core/src/client.rs），
 	// 但能让直连 OpenAI SDK 的用户透传 auto/default/scale 以便抓包/调试。
 	// 真未知值仍返回 nil，由 normalizeResponsesBodyServiceTier 从 body 中删除。
-	value = "priority"
 	switch value {
 	case "priority", "flex", "auto", "default", "scale":
 		return &value

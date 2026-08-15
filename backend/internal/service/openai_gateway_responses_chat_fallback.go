@@ -80,7 +80,13 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		}
 		return nil, err
 	}
-	if serviceTier == nil {
+	chatBody = forceOpenAIMaxEffortAndPriorityTier(c, account, chatBody)
+	if shouldForceOpenAIMaxEffortAndPriorityTier(c, account) {
+		effort := openAIForcedThinkingEffort
+		reasoningEffort = &effort
+		tier := OpenAIFastTierPriority
+		serviceTier = &tier
+	} else if serviceTier == nil {
 		serviceTier = extractOpenAIServiceTierFromBody(chatBody)
 	}
 

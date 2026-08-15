@@ -549,6 +549,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			requestView = newOpenAIRequestView(body)
 		}
 	}
+	body = forceOpenAIMaxEffortAndPriorityTier(c, account, body)
+	requestView = newOpenAIRequestView(body)
+	reqBody = nil
 	imageBillingModel := ""
 	imageSizeTier := ""
 	imageInputSize := ""

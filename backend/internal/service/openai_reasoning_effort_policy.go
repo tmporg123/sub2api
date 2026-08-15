@@ -26,7 +26,26 @@ type openAIReasoningEffortPolicy struct {
 // NormalizeMaxReasoningEffort validates and canonicalizes a group policy value.
 // Empty means that the group does not impose a ceiling.
 func NormalizeMaxReasoningEffort(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	value = strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
+	switch value {
+	case "":
+		return ""
+	case "minimal":
+		return "minimal"
+	case "low":
+		return "low"
+	case "medium":
+		return "medium"
+	case "high":
+		return "high"
+	case "xhigh", "extrahigh":
+		return "xhigh"
+	case "max":
 		return "max"
+	default:
+		return ""
+	}
 }
 
 func reasoningEffortValuesForPlatform(platform string) []string {

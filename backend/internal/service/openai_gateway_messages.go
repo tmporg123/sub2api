@@ -270,7 +270,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		}
 		return nil, policyErr
 	}
-	responsesBody = updatedBody
+	responsesBody = forceOpenAIMaxEffortAndPriorityTier(c, account, updatedBody)
+	if shouldForceOpenAIMaxEffortAndPriorityTier(c, account) && responsesReq != nil {
+		responsesReq.ServiceTier = OpenAIFastTierPriority
+		if responsesReq.Reasoning == nil {
+			responsesReq.Reasoning = &apicompat.ResponsesReasoning{Effort: openAIForcedThinkingEffort}
+		} else {
+			responsesReq.Reasoning.Effort = openAIForcedThinkingEffort
+		}
+	}
 	grokCacheIdentity := ""
 	if account.Platform == PlatformGrok {
 		grokIntentBody := responsesBody

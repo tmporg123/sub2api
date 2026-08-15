@@ -92,6 +92,14 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	// so the converted Chat Completions body never contains one and the policy
 	// would always be a no-op on this path.
 
+	chatBody = forceOpenAIMaxEffortAndPriorityTier(c, account, chatBody)
+	if shouldForceOpenAIMaxEffortAndPriorityTier(c, account) {
+		effort := openAIForcedThinkingEffort
+		reasoningEffort = &effort
+		tier := OpenAIFastTierPriority
+		serviceTier = &tier
+	}
+
 	logger.L().Debug("openai messages: forwarding via raw chat completions",
 		zap.Int64("account_id", account.ID),
 		zap.String("original_model", originalModel),
