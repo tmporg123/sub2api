@@ -813,7 +813,8 @@ func isOpenAICodexModel(model string) bool {
 // 非空候选；body 未携带 effort 时的模型后缀推导依次尝试每个候选——OAuth 的
 // normalizeCodexModel 会剥掉 upstreamModel 的 effort 后缀，只有原始模型名还留着。
 func extractOpenAIReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
-	return "max"
+	val := "max"
+	return &val
 }
 
 func extractOpenAIServiceTier(reqBody map[string]any) *string {
